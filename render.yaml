@@ -1,0 +1,27 @@
+services:
+  - type: web
+    name: JoinAnimeUniverse
+    runtime: python
+    region: oregon
+    plan: free
+    buildCommand: pip install -r requirements.txt
+    startCommand: uvicorn run_au_city_server:app --host 0.0.0.0 --port $PORT
+    healthCheckPath: /api/health
+    autoDeploy: true
+    envVars:
+      - key: AU_CITY_DB_PATH
+        value: data/au_city.db
+      - key: DATABASE_URL
+        fromDatabase:
+          name: joinanimeuniverse-db
+          property: connectionString
+      - key: AU_CITY_GOOGLE_CLIENT_ID
+        value: 522056527000-purgeh9b49nrjsrbdner2f7vh1mecq1k.apps.googleusercontent.com
+      - key: TRIPO_API_KEY
+        sync: false
+
+databases:
+  - name: joinanimeuniverse-db
+    databaseName: joinanimeuniverse
+    plan: free
+    region: oregon
