@@ -565,12 +565,15 @@ DEFAULT_USER_SETTINGS: Dict[str, Any] = {
     "show_nametags": True,
     "show_controls_hint": True,
     "lighting_mode": "twilight",
+    "avatar_mode": "glb",
 }
 
 
 def sanitize_user_settings(patch: Optional[Dict[str, Any]], base: Optional[Dict[str, Any]] = None) -> Dict[str, Any]:
     """Clamp and validate player settings against safe allowed ranges and enums."""
     merged = {**DEFAULT_USER_SETTINGS, **(base or {})}
+    if str(merged.get("avatar_mode") or "") not in ("glb", "uploaded"):
+        merged["avatar_mode"] = "glb"
     if not isinstance(patch, dict):
         return merged
 
@@ -597,10 +600,13 @@ def sanitize_user_settings(patch: Optional[Dict[str, Any]], base: Optional[Dict[
         "chat_channel": {"proximity", "global"},
         "chat_font_size": {"sm", "md", "lg"},
         "lighting_mode": {"twilight", "day", "night", "auto"},
+        "avatar_mode": {"glb", "uploaded"},
     }
     for key, allowed in enum_rules.items():
         if key in patch and str(patch[key]) in allowed:
             merged[key] = str(patch[key])
+    if "avatar_mode" in patch and str(patch["avatar_mode"]) not in ("glb", "uploaded"):
+        merged["avatar_mode"] = "glb"
 
     if "chat_text_color" in patch and str(patch["chat_text_color"]).lower() in ALLOWED_CHAT_TEXT_COLORS:
         merged["chat_text_color"] = str(patch["chat_text_color"]).lower()
@@ -1116,6 +1122,20 @@ class AuCityService:
                 "INSERT INTO au_world_state (state_key, value_json, updated_by, updated_at) VALUES (?, ?, '', ?) ON CONFLICT (state_key) DO NOTHING",
                 ("world_clock", json.dumps(default_clock), now),
             )
+
+            # One-time migration: eliminate legacy 'modular' primitive humanoid mode -> real GLB ('glb')
+            legacy_rows = con.execute("SELECT user_id, settings_json FROM au_users WHERE settings_json LIKE '%modular%'").fetchall()
+            for lr in legacy_rows:
+                try:
+                    cur_s = json.loads(lr.get("settings_json") or "{}")
+                except Exception:
+                    cur_s = {}
+                if isinstance(cur_s, dict) and cur_s.get("avatar_mode") == "modular":
+                    cur_s["avatar_mode"] = "glb"
+                    con.execute(
+                        "UPDATE au_users SET settings_json = ?, updated_at = ? WHERE user_id = ?",
+                        (json.dumps(cur_s), now, lr["user_id"]),
+                    )
 
     @staticmethod
     def _format_mute_remaining(muted_until: float, now: float) -> str:
@@ -1657,7 +1677,7 @@ class AuCityService:
     def get_home_view(self, owner_id: str, requester_id: str) -> Dict[str, Any]:
         with self._conn() as con:
             owner = con.execute(
-                "SELECT user_id, username, display_name, apartment_tier, avatar_glb_url, avatar_appearance_json FROM au_users WHERE user_id = ?",
+                "SELECT user_id, username, display_name, apartment_tier, avatar_glb_url, avatar_appearance_json, settings_json FROM au_users WHERE user_id = ?",
                 (owner_id,),
             ).fetchone()
             if not owner:
@@ -1682,15 +1702,77 @@ class AuCityService:
             raw_app = json.loads(owner_dict.pop("avatar_appearance_json", "{}") or "{}")
         except Exception:
             raw_app = {}
+        try:
+            raw_settings = json.loads(owner_dict.pop("settings_json", "{}") or "{}")
+        except Exception:
+            raw_settings = {}
+        perm_layout = raw_settings.get("perm_layout") if isinstance(raw_settings, dict) else {}
+        if not isinstance(perm_layout, dict):
+            perm_layout = {}
+        perm_items: List[Dict[str, Any]] = []
+        for base_pm in PERMANENT_HOME_ITEMS:
+            pm_copy = {**base_pm, "pos": list(base_pm["pos"])}
+            ov = perm_layout.get(base_pm["item_id"])
+            if isinstance(ov, dict):
+                try:
+                    pm_copy["pos"] = [
+                        max(-18.0, min(18.0, float(ov.get("pos_x", pm_copy["pos"][0])))),
+                        max(0.0, min(4.0, float(ov.get("pos_y", pm_copy["pos"][1])))),
+                        max(-18.0, min(18.0, float(ov.get("pos_z", pm_copy["pos"][2])))),
+                    ]
+                    pm_copy["rot_y"] = float(ov.get("rot_y", pm_copy.get("rot_y", 0.0))) % (math.tau)
+                except (TypeError, ValueError):
+                    pass
+            perm_items.append(pm_copy)
+
         owner_dict["avatar_appearance"] = sanitize_avatar_appearance(raw_app)
         plan = AU_FLOOR_PLANS.get(owner_dict["apartment_tier"], AU_FLOOR_PLANS["studio"])
         return {
             "owner": owner_dict,
             "floor_plan": plan,
-            "permanent_items": PERMANENT_HOME_ITEMS,
+            "permanent_items": perm_items,
             "placed_items": [dict(r) for r in placed],
             "invited_guests": [dict(r) for r in invite_rows] if owner_id == requester_id else [],
         }
+
+    def move_permanent_home_item(
+        self,
+        user_id: str,
+        item_id: str,
+        pos_x: float,
+        pos_y: float,
+        pos_z: float,
+        rot_y: float,
+    ) -> Dict[str, Any]:
+        """Persist custom position/rotation/stacking height for a permanent apartment fixture."""
+        valid_ids = {p["item_id"] for p in PERMANENT_HOME_ITEMS}
+        if item_id not in valid_ids:
+            raise ValueError(f"Unknown permanent home item '{item_id}'.")
+        cx = round(max(-18.0, min(18.0, float(pos_x))), 2)
+        cy = round(max(0.0, min(4.0, float(pos_y))), 2)
+        cz = round(max(-18.0, min(18.0, float(pos_z))), 2)
+        ry = round(float(rot_y) % math.tau, 3)
+        now = time.time()
+        with self._conn(exclusive=True) as con:
+            row = con.execute("SELECT settings_json FROM au_users WHERE user_id = ?", (user_id,)).fetchone()
+            if not row:
+                raise ValueError("User not found.")
+            try:
+                cur_settings = json.loads(row.get("settings_json") or "{}")
+            except Exception:
+                cur_settings = {}
+            if not isinstance(cur_settings, dict):
+                cur_settings = {}
+            perm_layout = cur_settings.get("perm_layout")
+            if not isinstance(perm_layout, dict):
+                perm_layout = {}
+            perm_layout[item_id] = {"pos_x": cx, "pos_y": cy, "pos_z": cz, "rot_y": ry}
+            cur_settings["perm_layout"] = perm_layout
+            con.execute(
+                "UPDATE au_users SET settings_json = ?, updated_at = ? WHERE user_id = ?",
+                (json.dumps(cur_settings), now, user_id),
+            )
+        return self.get_home_view(user_id, user_id)
 
     def _enforce_social_privacy(
         self,

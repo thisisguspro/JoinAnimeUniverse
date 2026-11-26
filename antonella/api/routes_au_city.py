@@ -83,6 +83,14 @@ class StorageMoveReq(BaseModel):
     rot_y: float = 0.0
 
 
+class PermanentHomeMoveReq(BaseModel):
+    item_id: str
+    pos_x: float = 0.0
+    pos_y: float = 0.0
+    pos_z: float = 0.0
+    rot_y: float = 0.0
+
+
 class InviteHomeReq(BaseModel):
     username: str
 
@@ -940,6 +948,29 @@ def storage_move(
     user = _require_user(au_city_session, x_au_session)
     try:
         return {"ok": True, "user": au_service.move_item_location(user["user_id"], body.inv_id, body.target_location, body.pos_x, body.pos_y, body.pos_z, body.rot_y)}
+    except ValueError as exc:
+        raise HTTPException(status_code=400, detail=str(exc)) from exc
+
+
+@router.post("/home/permanent-move")
+def permanent_home_move(
+    body: PermanentHomeMoveReq,
+    au_city_session: Optional[str] = Cookie(default=None),
+    x_au_session: Optional[str] = Header(default=None),
+):
+    user = _require_user(au_city_session, x_au_session)
+    try:
+        return {
+            "ok": True,
+            "home": au_service.move_permanent_home_item(
+                user["user_id"],
+                body.item_id,
+                body.pos_x,
+                body.pos_y,
+                body.pos_z,
+                body.rot_y,
+            ),
+        }
     except ValueError as exc:
         raise HTTPException(status_code=400, detail=str(exc)) from exc
 
