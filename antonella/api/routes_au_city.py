@@ -18,6 +18,8 @@ from antonella.services.au_city_service import (
     AU_FLOOR_PLANS,
     AU_SHOP_CATALOG,
     AU_TO_ZEN_RATE,
+    AVATAR_HEAD_CHANGE_FEE_AU,
+    CUSTOM_AVATAR_UPLOAD_FEE_AU,
     DEFAULT_AVATAR_APPEARANCE,
     GROUP_PHASE_HARD_CAP,
     INDOOR_FURNITURE_CATEGORIES,
@@ -135,6 +137,10 @@ class SwitchPhaseReq(BaseModel):
 
 class AvatarAppearanceReq(BaseModel):
     appearance: Dict[str, Any]
+
+
+class AvatarIdentityReq(BaseModel):
+    base_char_id: str
 
 
 class AdminChatDeleteReq(BaseModel):
@@ -667,6 +673,8 @@ def au_city_config():
         "proximity_radius_m": PROXIMITY_RADIUS_M,
         "au_to_zen_rate": AU_TO_ZEN_RATE,
         "newsletter_bonus_zc": NEWSLETTER_BONUS_ZC,
+        "avatar_head_change_fee_au": AVATAR_HEAD_CHANGE_FEE_AU,
+        "custom_avatar_upload_fee_au": CUSTOM_AVATAR_UPLOAD_FEE_AU,
         "districts": AU_CITY_DISTRICTS,
         "floor_plans": AU_FLOOR_PLANS,
         "permanent_home_items": PERMANENT_HOME_ITEMS,
@@ -845,6 +853,21 @@ def get_avatar_glb_file(user_id: str):
     )
 
 
+@router.post("/avatar/identity")
+async def select_avatar_identity(
+    body: AvatarIdentityReq,
+    au_city_session: Optional[str] = Cookie(default=None),
+    x_au_session: Optional[str] = Header(default=None),
+):
+    user = _require_user(au_city_session, x_au_session)
+    try:
+        res = await asyncio.to_thread(au_service.select_avatar_identity, user["user_id"], body.base_char_id)
+        await phase_manager.refresh_user_payload(user["user_id"])
+        return res
+    except ValueError as exc:
+        raise HTTPException(status_code=400, detail=str(exc)) from exc
+
+
 @router.post("/avatar/upload")
 async def upload_avatar_to_tripo(
     file: UploadFile = File(...),
@@ -852,9 +875,9 @@ async def upload_avatar_to_tripo(
     x_au_session: Optional[str] = Header(default=None),
 ):
     user = _require_user(au_city_session, x_au_session)
-    img_bytes = await file.read()
+    file_bytes = await file.read()
     try:
-        res = await asyncio.to_thread(au_service.generate_user_avatar_from_image, user["user_id"], img_bytes, file.filename or "avatar.png")
+        res = await asyncio.to_thread(au_service.upload_custom_avatar_file, user["user_id"], file_bytes, file.filename or "avatar.glb")
         await phase_manager.refresh_user_payload(user["user_id"])
         return res
     except ValueError as exc:

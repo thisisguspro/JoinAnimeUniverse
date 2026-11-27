@@ -9,6 +9,7 @@ import re
 import secrets
 import shutil
 import sqlite3
+import struct
 import time
 import urllib.error
 import urllib.parse
@@ -60,6 +61,17 @@ DAILY_CHECKIN_ZC = 75
 DISCOVERY_BONUS_ZC = 35
 MIN_AVATAR_BYTES = 32
 MAX_AVATAR_BYTES = 8 * 1024 * 1024
+MAX_AVATAR_GLB_BYTES = 16 * 1024 * 1024
+AVATAR_HEAD_CHANGE_FEE_AU = 15
+CUSTOM_AVATAR_UPLOAD_FEE_AU = 35
+ALLOWED_BASE_CHAR_IDS: Tuple[str, ...] = (
+    "base_versekeeper",
+    "base_ronin",
+    "base_idol",
+    "base_mage",
+    "base_beach_m",
+    "base_beach_f",
+)
 
 # Exact 10 districts from https://anime-universe-hero.vercel.app/ + Central Landmarks
 AU_CITY_DISTRICTS: List[Dict[str, Any]] = [
@@ -480,8 +492,11 @@ def compute_10x_catalog_budget() -> Dict[str, int]:
     }
 
 
-DEFAULT_AVATAR_APPEARANCE: Dict[str, str] = {
+DEFAULT_AVATAR_APPEARANCE: Dict[str, Any] = {
     "gender": "male",
+    "base_char_id": "base_versekeeper",
+    "identity_initialized": False,
+    "outfit_gender_fit": "auto",
     "skinTone": "#f5c9a6",
     "eyeColor": "#38bdf8",
     "hairId": "m_spiky_shonen",
@@ -499,12 +514,22 @@ DEFAULT_AVATAR_APPEARANCE: Dict[str, str] = {
 def sanitize_avatar_appearance(
     raw: Optional[Dict[str, Any]],
     base: Optional[Dict[str, Any]] = None,
-) -> Dict[str, str]:
-    """Sanitize and normalize modular 3D avatar appearance dictionary."""
-    merged: Dict[str, str] = {**DEFAULT_AVATAR_APPEARANCE}
+) -> Dict[str, Any]:
+    """Sanitize and normalize modular 3D avatar appearance & head identity dictionary."""
+    merged: Dict[str, Any] = {**DEFAULT_AVATAR_APPEARANCE}
     if isinstance(base, dict):
         for k in DEFAULT_AVATAR_APPEARANCE:
-            if k in base and isinstance(base[k], str) and base[k].strip():
+            if k == "identity_initialized":
+                merged[k] = bool(base.get(k, False))
+            elif k == "base_char_id":
+                bv = str(base.get(k) or "").strip()
+                if bv in ALLOWED_BASE_CHAR_IDS:
+                    merged[k] = bv
+            elif k == "outfit_gender_fit":
+                fv = str(base.get(k) or "").strip().lower()
+                if fv in ("auto", "m", "f"):
+                    merged[k] = fv
+            elif k in base and isinstance(base[k], str) and base[k].strip():
                 merged[k] = base[k].strip()
     if not isinstance(raw, dict):
         return merged
@@ -513,6 +538,19 @@ def sanitize_avatar_appearance(
         g = str(raw["gender"]).strip().lower()
         if g in ("male", "female"):
             merged["gender"] = g
+
+    if "base_char_id" in raw:
+        bc = str(raw["base_char_id"]).strip()
+        if bc in ALLOWED_BASE_CHAR_IDS:
+            merged["base_char_id"] = bc
+
+    if "outfit_gender_fit" in raw:
+        gf = str(raw["outfit_gender_fit"]).strip().lower()
+        if gf in ("auto", "m", "f"):
+            merged["outfit_gender_fit"] = gf
+
+    if "identity_initialized" in raw and bool(raw["identity_initialized"]):
+        merged["identity_initialized"] = True
 
     hex_re = re.compile(r"^#[0-9a-fA-F]{6}$")
     for color_key in ("skinTone", "eyeColor", "hairColor", "shirtColor", "pantsColor", "shoesColor"):
@@ -1354,11 +1392,71 @@ class AuCityService:
             except Exception:
                 cur = {}
             clean_app = sanitize_avatar_appearance(appearance, base=cur)
+            if isinstance(cur, dict) and cur.get("identity_initialized"):
+                # Locked head identity after initial creation; must pay via select_avatar_identity
+                cur_base = str(cur.get("base_char_id") or "")
+                if cur_base in ALLOWED_BASE_CHAR_IDS:
+                    clean_app["base_char_id"] = cur_base
+                clean_app["identity_initialized"] = True
             con.execute(
                 "UPDATE au_users SET avatar_appearance_json = ?, updated_at = ? WHERE user_id = ?",
                 (json.dumps(clean_app), now, user_id),
             )
         return self.get_user_bundle(user_id)  # type: ignore[return-value]
+
+    def select_avatar_identity(self, user_id: str, base_char_id: str) -> Dict[str, Any]:
+        """Select character head/identity: FREE during initial creation, 15 AU Coins for later head changes."""
+        bc = str(base_char_id or "").strip()
+        if bc not in ALLOWED_BASE_CHAR_IDS:
+            raise ValueError(f"Unknown character head identity '{bc}'.")
+        now = time.time()
+        female_ids = {"base_idol", "base_mage", "base_beach_f"}
+        with self._conn(exclusive=True) as con:
+            row = con.execute(
+                "SELECT au_coins, avatar_appearance_json, avatar_glb_url FROM au_users WHERE user_id = ?",
+                (user_id,),
+            ).fetchone()
+            if not row:
+                raise ValueError("User not found.")
+            try:
+                raw_cur = json.loads(row.get("avatar_appearance_json") or "{}")
+            except Exception:
+                raw_cur = {}
+            cur_app = sanitize_avatar_appearance(None, base=raw_cur if isinstance(raw_cur, dict) else None)
+            already_initialized = bool(cur_app.get("identity_initialized"))
+            cur_base = str(cur_app.get("base_char_id") or "base_versekeeper")
+            has_uploaded_glb = bool(row.get("avatar_glb_url") and "/avatar/file/" in str(row.get("avatar_glb_url") or ""))
+
+            if not already_initialized or (cur_base == bc and not has_uploaded_glb):
+                cost_au = 0
+            else:
+                cost_au = AVATAR_HEAD_CHANGE_FEE_AU
+                if int(row["au_coins"]) < cost_au:
+                    raise ValueError(f"Changing your character head costs {cost_au} AU Coins.")
+                res = con.execute(
+                    "UPDATE au_users SET au_coins = au_coins - ?, updated_at = ? WHERE user_id = ? AND au_coins >= ?",
+                    (cost_au, now, user_id, cost_au),
+                )
+                if res.rowcount == 0:
+                    raise ValueError(f"Changing your character head costs {cost_au} AU Coins.")
+                con.execute(
+                    "INSERT INTO au_ledger (tx_id, user_id, currency, delta, reason, meta_json, created_at) VALUES (?, ?, 'au_coins', ?, 'avatar_head_change', ?, ?)",
+                    ("tx_" + secrets.token_hex(6), user_id, -cost_au, json.dumps({"base_char_id": bc}), now),
+                )
+
+            cur_app["base_char_id"] = bc
+            cur_app["identity_initialized"] = True
+            cur_app["gender"] = "female" if bc in female_ids else "male"
+            con.execute(
+                "UPDATE au_users SET avatar_appearance_json = ?, avatar_glb_url = '', updated_at = ? WHERE user_id = ?",
+                (json.dumps(cur_app), now, user_id),
+            )
+        return {
+            "ok": True,
+            "cost_au": cost_au,
+            "base_char_id": bc,
+            "user": self.get_user_bundle(user_id),
+        }
 
     def get_avatar_blob(self, user_id: str) -> Optional[Dict[str, Any]]:
         if not re.fullmatch(r"[a-zA-Z0-9_-]{3,64}", user_id or ""):
@@ -2617,20 +2715,103 @@ class AuCityService:
                     break
         return key
 
-    def generate_user_avatar_from_image(self, user_id: str, image_bytes: bytes, filename: str) -> Dict[str, Any]:
-        """Validate uploaded PNG/JPG and generate a personalized 3D `.glb` avatar via Tripo OpenAPI v2."""
-        if not (MIN_AVATAR_BYTES <= len(image_bytes) <= MAX_AVATAR_BYTES):
-            raise ValueError("Avatar image must be between 32 bytes and 8 MB.")
-        if image_bytes.startswith(b"\x89PNG\r\n\x1a\n"):
-            ext, mime = "png", "image/png"
-        elif image_bytes.startswith(b"\xff\xd8\xff"):
-            ext, mime = "jpg", "image/jpeg"
-        else:
-            raise ValueError("Only valid PNG or JPG images are accepted for 3D avatar generation.")
+    def upload_custom_avatar_file(self, user_id: str, file_bytes: bytes, filename: str) -> Dict[str, Any]:
+        """Validate uploaded .glb (<=16 MB) or PNG/JPG (Tripo Image-to-3D, <=8 MB) and charge 35 AU Coins upon success."""
+        fee_au = CUSTOM_AVATAR_UPLOAD_FEE_AU
+        with self._conn() as con:
+            u = con.execute("SELECT au_coins FROM au_users WHERE user_id = ?", (user_id,)).fetchone()
+            if not u:
+                raise ValueError("User not found.")
+            if int(u["au_coins"]) < fee_au:
+                raise ValueError(f"Uploading a custom character requires {fee_au} AU Coins.")
 
+        if file_bytes.startswith(b"glTF"):
+            if not (MIN_AVATAR_BYTES <= len(file_bytes) <= MAX_AVATAR_GLB_BYTES):
+                raise ValueError("Custom .glb character must be between 32 bytes and 16 MB.")
+            if len(file_bytes) < 20:
+                raise ValueError("Uploaded .glb header is truncated.")
+            version, declared_len = struct.unpack("<II", file_bytes[4:12])
+            if version != 2 or declared_len != len(file_bytes):
+                raise ValueError("Invalid or corrupt glTF 2.0 binary (.glb) file.")
+            glb_bytes = file_bytes
+            task_id = "direct_glb"
+        else:
+            if not (MIN_AVATAR_BYTES <= len(file_bytes) <= MAX_AVATAR_BYTES):
+                raise ValueError("Avatar file must be between 32 bytes and 8 MB for PNG/JPG (16 MB for .glb).")
+            if file_bytes.startswith(b"\x89PNG\r\n\x1a\n"):
+                ext, mime = "png", "image/png"
+            elif file_bytes.startswith(b"\xff\xd8\xff"):
+                ext, mime = "jpg", "image/jpeg"
+            else:
+                raise ValueError("Upload a valid 3D .glb model or full-body PNG/JPG character image.")
+            glb_bytes, task_id = self._generate_glb_via_tripo(file_bytes, ext, mime, filename)
+
+        try:
+            PUBLIC_MODELS_DIR.mkdir(parents=True, exist_ok=True)
+            (PUBLIC_MODELS_DIR / "avatars").mkdir(parents=True, exist_ok=True)
+            out_path = PUBLIC_MODELS_DIR / "avatars" / f"{user_id}.glb"
+            out_path.write_bytes(glb_bytes)
+            if (WORKSPACE_ROOT / "frontend" / "dist").exists():
+                dist_av = DIST_MODELS_DIR / "avatars"
+                dist_av.mkdir(parents=True, exist_ok=True)
+                shutil.copy2(out_path, dist_av / f"{user_id}.glb")
+        except Exception:
+            pass
+
+        now = time.time()
+        rel_url = f"/api/au-city/avatar/file/{user_id}.glb?v={int(now)}"
+        with self._conn(exclusive=True) as con:
+            cur_u = con.execute("SELECT au_coins, avatar_appearance_json FROM au_users WHERE user_id = ?", (user_id,)).fetchone()
+            if not cur_u or int(cur_u["au_coins"]) < fee_au:
+                raise ValueError(f"Uploading a custom character requires {fee_au} AU Coins.")
+            res = con.execute(
+                "UPDATE au_users SET au_coins = au_coins - ?, avatar_glb_url = ?, updated_at = ? WHERE user_id = ? AND au_coins >= ?",
+                (fee_au, rel_url, now, user_id, fee_au),
+            )
+            if res.rowcount == 0:
+                raise ValueError(f"Uploading a custom character requires {fee_au} AU Coins.")
+            con.execute(
+                "INSERT INTO au_ledger (tx_id, user_id, currency, delta, reason, meta_json, created_at) VALUES (?, ?, 'au_coins', ?, 'custom_avatar_upload', ?, ?)",
+                ("tx_" + secrets.token_hex(6), user_id, -fee_au, json.dumps({"task_id": task_id, "bytes": len(glb_bytes)}), now),
+            )
+            try:
+                raw_app = json.loads(cur_u.get("avatar_appearance_json") or "{}")
+            except Exception:
+                raw_app = {}
+            clean_app = sanitize_avatar_appearance(None, base=raw_app if isinstance(raw_app, dict) else None)
+            clean_app["identity_initialized"] = True
+            con.execute(
+                "UPDATE au_users SET avatar_appearance_json = ? WHERE user_id = ?",
+                (json.dumps(clean_app), user_id),
+            )
+            con.upsert(
+                "au_avatar_blobs",
+                {
+                    "user_id": user_id,
+                    "filename": f"{user_id}.glb",
+                    "content_type": "model/gltf-binary",
+                    "data": self._db.adapt_blob(glb_bytes),
+                    "updated_at": now,
+                },
+                ("user_id",),
+            )
+        return {
+            "ok": True,
+            "cost_au": fee_au,
+            "task_id": task_id,
+            "avatar_glb_url": rel_url,
+            "user": self.get_user_bundle(user_id),
+        }
+
+    def generate_user_avatar_from_image(self, user_id: str, image_bytes: bytes, filename: str) -> Dict[str, Any]:
+        """Backward-compatible alias delegating image/GLB uploads to upload_custom_avatar_file."""
+        return self.upload_custom_avatar_file(user_id, image_bytes, filename)
+
+    def _generate_glb_via_tripo(self, image_bytes: bytes, ext: str, mime: str, filename: str) -> Tuple[bytes, str]:
+        """Upload PNG/JPG to Tripo OpenAPI v2, run auto-rig, and return (glb_bytes, task_id)."""
         token = self._get_tripo_key()
         if not token:
-            raise RuntimeError("TRIPO_API_KEY is not configured on the server.")
+            raise RuntimeError("TRIPO_API_KEY is not configured on the server (you can still upload a .glb file directly).")
 
         boundary = f"----AUBoundary{secrets.token_hex(8)}"
         safe_name = re.sub(r"[^a-zA-Z0-9._-]", "_", Path(filename or f"avatar.{ext}").name) or f"avatar.{ext}"
@@ -2779,38 +2960,7 @@ class AuCityService:
         ).read()
         if not glb_bytes.startswith(b"glTF"):
             raise RuntimeError("Downloaded Tripo model is not a valid binary glTF (.glb).")
-
-        try:
-            PUBLIC_MODELS_DIR.mkdir(parents=True, exist_ok=True)
-            (PUBLIC_MODELS_DIR / "avatars").mkdir(parents=True, exist_ok=True)
-            out_path = PUBLIC_MODELS_DIR / "avatars" / f"{user_id}.glb"
-            out_path.write_bytes(glb_bytes)
-            if (WORKSPACE_ROOT / "frontend" / "dist").exists():
-                dist_av = DIST_MODELS_DIR / "avatars"
-                dist_av.mkdir(parents=True, exist_ok=True)
-                shutil.copy2(out_path, dist_av / f"{user_id}.glb")
-        except Exception:
-            pass
-
-        now = time.time()
-        rel_url = f"/api/au-city/avatar/file/{user_id}.glb?v={int(now)}"
-        with self._conn(exclusive=True) as con:
-            con.upsert(
-                "au_avatar_blobs",
-                {
-                    "user_id": user_id,
-                    "filename": f"{user_id}.glb",
-                    "content_type": "model/gltf-binary",
-                    "data": self._db.adapt_blob(glb_bytes),
-                    "updated_at": now,
-                },
-                ("user_id",),
-            )
-            con.execute(
-                "UPDATE au_users SET avatar_glb_url = ?, updated_at = ? WHERE user_id = ?",
-                (rel_url, now, user_id),
-            )
-        return {"ok": True, "task_id": task_id, "avatar_glb_url": rel_url, "user": self.get_user_bundle(user_id)}
+        return glb_bytes, task_id
 
     def get_tripo_manifest(self) -> Dict[str, Any]:
         if TRIPO_MANIFEST_PATH.is_file():
