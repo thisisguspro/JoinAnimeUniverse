@@ -80,9 +80,26 @@ async def security_and_dotfile_gate(request: Request, call_next):
     return response
 
 
+_cors_origins = [
+    origin.strip().rstrip("/")
+    for origin in (
+        os.getenv("CORS_ALLOWED_ORIGINS", "").split(",")
+        + [
+            os.getenv("PUBLIC_ORIGIN", ""),
+            "https://joinanimeuniverse.onrender.com",
+            "https://guspro-hub.onrender.com",
+            "http://127.0.0.1:5173",
+            "http://localhost:5173",
+            "http://127.0.0.1:8000",
+            "http://localhost:8000",
+        ]
+    )
+    if origin and origin.strip()
+]
+
 app.add_middleware(
     CORSMiddleware,
-    allow_origins=["*"],
+    allow_origins=list(dict.fromkeys(_cors_origins)),
     allow_credentials=True,
     allow_methods=["*"],
     allow_headers=["*"],
