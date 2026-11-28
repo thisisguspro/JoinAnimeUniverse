@@ -73,6 +73,23 @@ ALLOWED_BASE_CHAR_IDS: Tuple[str, ...] = (
     "base_beach_f",
 )
 
+DEFAULT_CITY_STYLE = "anime_tokyo_festival"
+ALLOWED_CITY_STYLES: Tuple[str, ...] = (
+    "anime_tokyo_festival",
+    "neo_tokyo_cyber",
+    "classic_daikanyama",
+    "edo_shogun_palace",
+    "shinjuku_rain_noir",
+    "kyoto_moonlit_shrine",
+    "sky_citadel_aether",
+    "volcanic_mecha_citadel",
+    "atlantis_biolum_dome",
+    "clockwork_brass_skyport",
+    "aurora_crystal_kyoto",
+    "solarpunk_eden_gardens",
+    "astral_eclipse_observatory",
+)
+
 # Exact 10 districts from https://anime-universe-hero.vercel.app/ + Central Landmarks
 AU_CITY_DISTRICTS: List[Dict[str, Any]] = [
     {
@@ -257,6 +274,21 @@ AU_CITY_DISTRICTS: List[Dict[str, Any]] = [
         "z": 66.0,
         "model": "au_bld_emporium.glb",
     },
+    {
+        "id": "merch_store",
+        "studio": "AU Official Merch Store",
+        "role": "OFFICIAL SHOPIFY FLAGSHIP",
+        "title": "Official Anime Universe Merch",
+        "desc": "Shop official Anime Universe apparel, plushies, accessories, and limited drops directly on our Shopify storefront.",
+        "a": "#f43f5e",
+        "b": "#fbbf24",
+        "points": ["Official Apparel & Hoodies", "Limited Collectibles & Drops", "Direct Secure Shopify Checkout"],
+        "tools": [["Open Shopify Store", "E", "#f43f5e"]],
+        "external_url": "https://anime-universe-6921.myshopify.com/",
+        "x": 33.0,
+        "z": 15.0,
+        "model": "",
+    },
 ]
 
 VEHICLE_PHYSICS_CLASSES: Dict[str, Dict[str, float]] = {
@@ -399,7 +431,7 @@ _RAW_SHOP_CATALOG: List[Dict[str, Any]] = [
     # Pets
     {"id": "au_pet_kitsune", "name": "Mini Nine-Tail Kitsune", "category": "pet", "sub_category": "companion", "style_tier": "zen_wood", "price_zc": 500, "price_au": 5, "currency": "both", "tradeable": True, "model": "au_pet_kitsune.glb", "desc": "Floating fox spirit companion with spring-tether follow."},
     {"id": "au_pet_shiba", "name": "Cyber Shiba Inu", "category": "pet", "sub_category": "companion", "style_tier": "tokyo_loft", "price_zc": 450, "price_au": 5, "currency": "both", "tradeable": True, "model": "au_pet_shiba.glb", "desc": "Hologram-collar Shiba follower."},
-    {"id": "au_pet_mecha_cat", "name": "Neko-Bot Drone", "category": "pet", "sub_category": "companion", "style_tier": "imperial_gold", "price_zc": 0, "price_au": 18, "currency": "au", "tradeable": False, "model": "au_pet_mecha_cat.glb", "desc": "AU Coin exclusive hovering calico robot."},
+    {"id": "au_pet_mecha_cat", "name": "Astral Neko Familiar", "category": "pet", "sub_category": "companion", "style_tier": "imperial_gold", "price_zc": 0, "price_au": 18, "currency": "au", "tradeable": False, "model": "au_pet_mecha_cat.glb", "desc": "Mystical celestial anime cat with a glowing arcane rune ring and orbiting mana crystals."},
     {"id": "au_pet_star_slime", "name": "Starlight Slime", "category": "pet", "sub_category": "companion", "style_tier": "shibuya_neon", "price_zc": 300, "price_au": 3, "currency": "both", "tradeable": True, "model": "au_pet_star_slime.glb", "desc": "Bouncy translucent cosmic mascot."},
 
     # 2 Interactive RP Props
@@ -466,6 +498,20 @@ _RAW_SHOP_CATALOG: List[Dict[str, Any]] = [
     {"id": "au_furn_arcade_loft", "name": "Minimalist Bartop Console", "category": "furniture", "sub_category": "arcade", "style_tier": "tokyo_loft", "price_zc": 580, "price_au": 6, "currency": "both", "tradeable": True, "model": "au_furn_arcade_loft.glb", "desc": "Brushed-aluminum tabletop retro game station for studio lofts."},
     {"id": "au_furn_arcade_cab", "name": "Infinite Verse Arcade Cabinet", "category": "furniture", "sub_category": "arcade", "style_tier": "shibuya_neon", "price_zc": 850, "price_au": 9, "currency": "both", "tradeable": True, "model": "au_furn_arcade_cab.glb", "desc": "Playable cabinet silhouette for loft game rooms."},
     {"id": "au_furn_arcade_imperial", "name": "Imperial Gold VIP Arcade Cab", "category": "furniture", "sub_category": "arcade", "style_tier": "imperial_gold", "price_zc": 0, "price_au": 28, "currency": "au", "tradeable": False, "model": "au_furn_arcade_imperial.glb", "desc": "Limited edition champagne-gold candy cabinet with crystal joystick."},
+
+    # City Exterior Skins (Cash Shop Exclusive AU Coin City-Wide Visual Themes; default Akihabara Anime is free)
+    {"id": "au_city_skin_neo_tokyo_cyber", "name": "Neo-Tokyo 2099 Cyber City Skin", "category": "city_skin", "style_id": "neo_tokyo_cyber", "style_tier": "shibuya_neon", "price_zc": 0, "price_au": 14, "currency": "au", "tradeable": False, "model": "", "desc": "Brutalist uchippanashi concrete, cyber gantry billboards, X-braced neon steel & holographic skyline beams."},
+    {"id": "au_city_skin_classic_daikanyama", "name": "Artisanal Brick & Terrace City Skin", "category": "city_skin", "style_id": "classic_daikanyama", "style_tier": "tokyo_loft", "price_zc": 0, "price_au": 10, "currency": "au", "tradeable": False, "model": "", "desc": "Warm European-Japanese kiln brick boutiques, limestone trim, scalloped awnings & wrought-iron terraces."},
+    {"id": "au_city_skin_edo_shogun_palace", "name": "Edo Imperial Shogunate City Skin", "category": "city_skin", "style_id": "edo_shogun_palace", "style_tier": "imperial_gold", "price_zc": 0, "price_au": 22, "currency": "au", "tradeable": False, "model": "", "desc": "Lacquer vermilion pagoda tiers, gilded shachihoko finials, imperial palace walls & golden autumn drifting leaves."},
+    {"id": "au_city_skin_shinjuku_rain_noir", "name": "Shinjuku Neon Rain 2088 City Skin", "category": "city_skin", "style_id": "shinjuku_rain_noir", "style_tier": "shibuya_neon", "price_zc": 0, "price_au": 26, "currency": "au", "tradeable": False, "model": "", "desc": "Rain-slick obsidian blade skyscrapers, cobalt-magenta holograms, overhead cyber grid & vertical neon katakana."},
+    {"id": "au_city_skin_kyoto_moonlit_shrine", "name": "Kyoto Blood-Moon Shrine City Skin", "category": "city_skin", "style_id": "kyoto_moonlit_shrine", "style_tier": "zen_wood", "price_zc": 0, "price_au": 24, "currency": "au", "tradeable": False, "model": "", "desc": "Crimson Shinto gable roofs, towering vermilion torii gates, colossal blood-moon sky monument & glowing spirit fireflies."},
+    {"id": "au_city_skin_sky_citadel_aether", "name": "Celestial Aether Sky-Citadel City Skin", "category": "city_skin", "style_id": "sky_citadel_aether", "style_tier": "imperial_gold", "price_zc": 0, "price_au": 28, "currency": "au", "tradeable": False, "model": "", "desc": "Radiant white-marble cathedral spires, floating golden celestial halo rings, sapphire canopies & shimmering stardust."},
+    {"id": "au_city_skin_volcanic_mecha_citadel", "name": "Obsidian Mecha Forge City Skin", "category": "city_skin", "style_id": "volcanic_mecha_citadel", "style_tier": "shibuya_neon", "price_zc": 0, "price_au": 28, "currency": "au", "tradeable": False, "model": "", "desc": "Heavy volcanic basalt armor fortresses, plasma reactor roof vents, volcanic magma sky plume & rising forge embers."},
+    {"id": "au_city_skin_atlantis_biolum_dome", "name": "Abyssal Bioluminescent Atlantis Skin", "category": "city_skin", "style_id": "atlantis_biolum_dome", "style_tier": "tokyo_loft", "price_zc": 0, "price_au": 26, "currency": "au", "tradeable": False, "model": "", "desc": "Translucent pearl submarine domes, overhead abyssal biodome ribs, bioluminescent coral spines & rising sea bubbles."},
+    {"id": "au_city_skin_clockwork_brass_skyport", "name": "Grand Clockwork Brass Skyport Skin", "category": "city_skin", "style_id": "clockwork_brass_skyport", "style_tier": "imperial_gold", "price_zc": 0, "price_au": 24, "currency": "au", "tradeable": False, "model": "", "desc": "Steampunk oxidized-copper observatory domes, monumental brass facade gearwheels, bronze brick & skyport amber haze."},
+    {"id": "au_city_skin_aurora_crystal_kyoto", "name": "Aurora Crystal Ice-Palace City Skin", "category": "city_skin", "style_id": "aurora_crystal_kyoto", "style_tier": "tokyo_loft", "price_zc": 0, "price_au": 26, "currency": "au", "tradeable": False, "model": "", "desc": "Glacier prism cathedrals, crystalline ice spires, dancing northern lights sky ribbons & gentle winter snowfall."},
+    {"id": "au_city_skin_solarpunk_eden_gardens", "name": "Solarpunk Hanging Sky-Gardens Skin", "category": "city_skin", "style_id": "solarpunk_eden_gardens", "style_tier": "zen_wood", "price_zc": 0, "price_au": 24, "currency": "au", "tradeable": False, "model": "", "desc": "Sunlit ivory terraces crowned with brass pergolas, cascading emerald vines, golden sky rings & sunlit pollen petals."},
+    {"id": "au_city_skin_astral_eclipse_observatory", "name": "Astral Starlight Observatory City Skin", "category": "city_skin", "style_id": "astral_eclipse_observatory", "style_tier": "imperial_gold", "price_zc": 0, "price_au": 30, "currency": "au", "tradeable": False, "model": "", "desc": "Midnight velvet observatory domes topped with golden brass armillary spheres beneath a colossal ringed cosmic planet."},
 ]
 
 AU_SHOP_CATALOG: List[Dict[str, Any]] = [
@@ -604,6 +650,8 @@ DEFAULT_USER_SETTINGS: Dict[str, Any] = {
     "show_controls_hint": True,
     "lighting_mode": "twilight",
     "avatar_mode": "glb",
+    "city_style": DEFAULT_CITY_STYLE,
+    "map_view_mode": "3d",
 }
 
 
@@ -639,6 +687,8 @@ def sanitize_user_settings(patch: Optional[Dict[str, Any]], base: Optional[Dict[
         "chat_font_size": {"sm", "md", "lg"},
         "lighting_mode": {"twilight", "day", "night", "auto"},
         "avatar_mode": {"glb", "uploaded"},
+        "city_style": set(ALLOWED_CITY_STYLES),
+        "map_view_mode": {"3d", "park_map_25d"},
     }
     for key, allowed in enum_rules.items():
         if key in patch and str(patch[key]) in allowed:
@@ -1373,6 +1423,10 @@ class AuCityService:
             ).fetchone()
         user_dict = self._serialize_user_dict(u)
         inv = [dict(r) for r in inv_rows]
+        owned_ids = {r.get("item_id") for r in inv}
+        active_style = str(user_dict["settings"].get("city_style") or DEFAULT_CITY_STYLE)
+        if active_style != DEFAULT_CITY_STYLE and f"au_city_skin_{active_style}" not in owned_ids:
+            user_dict["settings"]["city_style"] = DEFAULT_CITY_STYLE
         plan = AU_FLOOR_PLANS.get(user_dict["apartment_tier"], AU_FLOOR_PLANS["studio"])
         return {
             **user_dict,
@@ -1496,6 +1550,14 @@ class AuCityService:
             except Exception:
                 cur = {}
             clean_settings = sanitize_user_settings(patch, base=cur)
+            target_style = str(clean_settings.get("city_style") or DEFAULT_CITY_STYLE)
+            if "city_style" in (patch or {}) and target_style != DEFAULT_CITY_STYLE:
+                owned_skin = con.execute(
+                    "SELECT 1 FROM au_inventory WHERE user_id = ? AND item_id = ? LIMIT 1",
+                    (user_id, f"au_city_skin_{target_style}"),
+                ).fetchone()
+                if not owned_skin:
+                    raise ValueError("Unlock this City Skin in the AU Cash Shop first.")
             con.execute(
                 "UPDATE au_users SET settings_json = ?, updated_at = ? WHERE user_id = ?",
                 (json.dumps(clean_settings), now, user_id),
@@ -1665,6 +1727,13 @@ class AuCityService:
         now = time.time()
         inv_id = "inv_" + secrets.token_hex(6)
         with self._conn(exclusive=True) as con:
+            if item.get("category") == "city_skin":
+                already = con.execute(
+                    "SELECT 1 FROM au_inventory WHERE user_id = ? AND item_id = ? LIMIT 1",
+                    (user_id, item_id),
+                ).fetchone()
+                if already:
+                    raise ValueError("You already own this City Skin.")
             u = con.execute(f"SELECT {col} AS bal FROM au_users WHERE user_id = ?", (user_id,)).fetchone()
             if not u or int(u["bal"]) < cost:
                 raise ValueError(f"Insufficient {'AU Coins' if pay_mode == 'au' else 'Zencoins'}.")
